@@ -1,0 +1,7 @@
+{
+  "name": "AcademiaAI - Smart Note Taker",
+  "description": "An advanced AI-powered academic note-taking system that transforms live lectures and study materials into structured, reference-linked study guides.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
