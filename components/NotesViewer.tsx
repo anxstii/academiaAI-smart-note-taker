@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { jsPDF } from 'jspdf';
 import { LectureNotes, Section } from '../types';
 
 interface NotesViewerProps {
@@ -8,6 +9,106 @@ interface NotesViewerProps {
 }
 
 export const NotesViewer: React.FC<NotesViewerProps> = ({ notes, onOpenQA }) => {
+  const handleExportPDF = () => {
+    if (!notes) return;
+
+    try {
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 20;
+      const contentWidth = pageWidth - margin * 2;
+      let cursorY = 20;
+
+      // Helper to add text and handle page breaks
+      const addText = (text: string, fontSize: number, isBold: boolean = false, spacing: number = 10) => {
+        doc.setFontSize(fontSize);
+        doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+        const lines = doc.splitTextToSize(text || "", contentWidth);
+        
+        if (cursorY + (lines.length * (fontSize / 2)) > 280) {
+          doc.addPage();
+          cursorY = 20;
+        }
+        
+        doc.text(lines, margin, cursorY);
+        cursorY += (lines.length * (fontSize / 3)) + spacing;
+      };
+
+      // Header
+      doc.setFillColor(79, 70, 229); // Indigo-600
+      doc.rect(0, 0, pageWidth, 40, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text(notes.metadata?.lecture_title || "Untitled Lecture", margin, 20);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Generated on: ${notes.metadata?.date || new Date().toLocaleDateString()}`, margin, 30);
+      
+      doc.setTextColor(30, 41, 59); // Slate-800
+      cursorY = 55;
+
+      // Topics
+      const topics = notes.metadata?.topics_covered || [];
+      addText(`Topics: ${topics.join(', ')}`, 10, true, 15);
+
+      // Sections
+      const sections = notes.notes?.sections || [];
+      sections.forEach((section) => {
+        addText(section.title || "Untitled Section", 16, true, 8);
+        addText(section.content || "", 11, false, 12);
+        
+        if (section.references && section.references.length > 0) {
+          doc.setTextColor(100, 116, 139);
+          addText("Sources consulted:", 9, true, 5);
+          section.references.forEach(ref => {
+            addText(`• ${ref.source_title || "Unknown Source"} (${ref.source_type || "N/A"}): ${ref.context || ""}`, 8, false, 4);
+          });
+          doc.setTextColor(30, 41, 59);
+          cursorY += 5;
+        }
+        cursorY += 5;
+      });
+
+      // Summary
+      const takeaways = notes.summary?.key_takeaways || [];
+      const focusPoints = notes.summary?.exam_focus_points || [];
+
+      if (takeaways.length > 0) {
+        if (cursorY > 240) { doc.addPage(); cursorY = 20; }
+        doc.setFillColor(240, 253, 244); // Emerald-50
+        doc.rect(margin - 5, cursorY - 5, contentWidth + 10, 40, 'F');
+        addText("Key Takeaways", 14, true, 8);
+        takeaways.forEach(k => addText(`• ${k}`, 10, false, 4));
+      }
+      
+      if (focusPoints.length > 0) {
+        cursorY += 10;
+        if (cursorY > 240) { doc.addPage(); cursorY = 20; }
+        doc.setFillColor(255, 251, 235); // Amber-50
+        doc.rect(margin - 5, cursorY - 5, contentWidth + 10, 40, 'F');
+        addText("Exam Focus Points", 14, true, 8);
+        focusPoints.forEach(p => addText(`• ${p}`, 10, false, 4));
+      }
+
+      // Footer
+      const totalPages = doc.internal.pages.length - 1;
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`AcademiaAI Study Notes - Page ${i} of ${totalPages}`, pageWidth / 2, 290, { align: 'center' });
+      }
+
+      doc.save(`${(notes.metadata?.lecture_title || "StudyNotes").replace(/\s+/g, '_')}.pdf`);
+    } catch (err) {
+      console.error("PDF Export failed:", err);
+      alert("Failed to export PDF. Please try again.");
+    }
+  };
+
   if (!notes) {
     return (
       <div className="h-full bg-white rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center p-12 text-center text-slate-400">
@@ -17,23 +118,35 @@ export const NotesViewer: React.FC<NotesViewerProps> = ({ notes, onOpenQA }) => 
           </svg>
         </div>
         <h3 className="text-lg font-semibold text-slate-600 mb-2">No Notes Generated</h3>
-        <p className="max-w-sm text-sm">Once you finish your live session, the structured notes, summaries, and exam focus points will appear here.</p>
+        <p className="max-w-sm text-sm">Once you finish your session, the structured notes, summaries, and exam focus points will appear here.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden flex flex-col">
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full overflow-hidden flex flex-col notes-container">
       <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
         <div className="flex-1">
           <div className="flex justify-between items-start mb-2">
-            <h2 className="text-2xl font-bold text-slate-900">{notes.metadata.lecture_title}</h2>
-            <span className="px-3 py-1 bg-white border border-slate-200 text-slate-600 rounded-full text-xs font-medium">
-              {notes.metadata.date}
-            </span>
+            <h2 className="text-2xl font-bold text-slate-900">{notes.metadata?.lecture_title || "Untitled Lecture"}</h2>
+            <div className="flex space-x-2 no-print">
+               <button 
+                onClick={handleExportPDF}
+                className="flex items-center space-x-2 px-3 py-2 bg-white rounded-lg border border-slate-200 text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+                title="Save to local files as PDF"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span className="text-xs font-bold">Export PDF</span>
+              </button>
+              <span className="px-3 py-1 bg-white border border-slate-200 text-slate-600 rounded-full text-xs font-medium self-center">
+                {notes.metadata?.date || "N/A"}
+              </span>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {notes.metadata.topics_covered.map((topic, i) => (
+            {(notes.metadata?.topics_covered || []).map((topic, i) => (
               <span key={i} className="text-xs font-medium bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">
                 #{topic}
               </span>
@@ -44,7 +157,7 @@ export const NotesViewer: React.FC<NotesViewerProps> = ({ notes, onOpenQA }) => 
 
       <div className="flex-1 overflow-y-auto p-6 space-y-10 custom-scrollbar">
         {/* Sections */}
-        {notes.notes.sections.map((section, idx) => (
+        {(notes.notes?.sections || []).map((section, idx) => (
           <SectionView key={idx} section={section} />
         ))}
 
@@ -58,7 +171,7 @@ export const NotesViewer: React.FC<NotesViewerProps> = ({ notes, onOpenQA }) => 
               Key Takeaways
             </h4>
             <ul className="space-y-3">
-              {notes.summary.key_takeaways.map((item, i) => (
+              {(notes.summary?.key_takeaways || []).map((item, i) => (
                 <li key={i} className="text-sm text-emerald-900/80 flex items-start">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-3 mt-1.5 shrink-0"></span>
                   {item}
@@ -75,7 +188,7 @@ export const NotesViewer: React.FC<NotesViewerProps> = ({ notes, onOpenQA }) => 
               Exam Focus Points
             </h4>
             <ul className="space-y-3">
-              {notes.summary.exam_focus_points.map((item, i) => (
+              {(notes.summary?.exam_focus_points || []).map((item, i) => (
                 <li key={i} className="text-sm text-amber-900/80 flex items-start">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mr-3 mt-1.5 shrink-0"></span>
                   {item}
@@ -94,19 +207,19 @@ const SectionView: React.FC<{ section: Section }> = ({ section }) => {
     <section className="group">
       <h3 className="text-lg font-bold text-slate-800 mb-3 flex items-center">
         <div className="w-1.5 h-6 bg-indigo-600 rounded-full mr-3"></div>
-        {section.title}
+        {section.title || "Untitled Section"}
       </h3>
       
       <div className="prose prose-slate max-w-none text-slate-600 text-sm leading-relaxed mb-6 pl-4.5 whitespace-pre-wrap">
-        {section.content}
+        {section.content || ""}
       </div>
 
-      {section.visual_aids?.tables && section.visual_aids.tables.length > 0 && (
+      {section.visual_aids?.tables && section.visual_aids.tables.length > 0 && section.visual_aids.tables[0] && (
         <div className="mb-6 overflow-x-auto">
           <table className="w-full text-sm text-left border-collapse bg-white rounded-lg shadow-sm border border-slate-200">
             <thead>
               <tr className="bg-slate-50">
-                {section.visual_aids.tables[0].map((header, i) => (
+                {(section.visual_aids.tables[0] || []).map((header, i) => (
                   <th key={i} className="px-4 py-2 font-semibold text-slate-700 border-b border-slate-200">
                     {header}
                   </th>
@@ -114,9 +227,9 @@ const SectionView: React.FC<{ section: Section }> = ({ section }) => {
               </tr>
             </thead>
             <tbody>
-              {section.visual_aids.tables.slice(1).map((row, ri) => (
+              {(section.visual_aids.tables.slice(1) || []).map((row, ri) => (
                 <tr key={ri} className="hover:bg-slate-50/50 transition-colors">
-                  {row.map((cell, ci) => (
+                  {(row || []).map((cell, ci) => (
                     <td key={ci} className="px-4 py-2 text-slate-600 border-b border-slate-100">
                       {cell}
                     </td>
@@ -132,19 +245,19 @@ const SectionView: React.FC<{ section: Section }> = ({ section }) => {
         <div className="mb-6 p-4 bg-slate-900 rounded-xl overflow-x-auto shadow-inner">
           <div className="text-slate-400 text-[10px] mb-2 font-mono uppercase tracking-widest">Process Logic Visualization</div>
           <pre className="text-indigo-400 font-mono text-xs leading-tight">
-            {section.visual_aids.diagrams[0]}
+            {section.visual_aids.diagrams[0] || ""}
           </pre>
         </div>
       )}
 
       <div className="pl-4.5 flex flex-wrap gap-3">
-        {section.references.map((ref, i) => (
+        {(section.references || []).map((ref, i) => (
           <div key={i} className="group/ref relative flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-50 text-slate-500 text-[11px] border border-slate-100 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-all cursor-help shadow-sm">
             <SourceIcon type={ref.source_type} />
-            <span className="font-medium truncate max-w-[150px]">{ref.source_title}</span>
+            <span className="font-medium truncate max-w-[150px]">{ref.source_title || "Unknown"}</span>
             <div className="absolute bottom-full mb-2 left-0 w-48 bg-slate-800 text-white p-3 rounded-xl text-[10px] opacity-0 group-hover/ref:opacity-100 transition-all z-10 pointer-events-none shadow-xl transform -translate-y-1">
               <div className="font-bold mb-1 uppercase tracking-tighter opacity-50">Cross-Reference Context</div>
-              {ref.context}
+              {ref.context || "No context provided."}
             </div>
           </div>
         ))}
